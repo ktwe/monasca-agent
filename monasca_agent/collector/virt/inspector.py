@@ -275,12 +275,13 @@ class Inspector(object):
         raise NotImplementedError
 
 
-def get_hypervisor_inspector():
+def get_hypervisor_inspector(**kwargs):
     try:
         namespace = 'monasca_agent.collector.virt'
         mgr = driver.DriverManager(namespace,
                                    cfg.CONF.hypervisor_inspector,
-                                   invoke_on_load=True)
+                                   invoke_on_load=True,
+                                   invoke_kwds=kwargs)
         return mgr.driver
     except ImportError:
         return Inspector()

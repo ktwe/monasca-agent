@@ -773,7 +773,7 @@ class LibvirtCheck(AgentCheck):
         for gauge in agg_gauges.keys():
             agg_values[gauge] = 0
 
-        insp = inspector.get_hypervisor_inspector()
+        insp = inspector.get_hypervisor_inspector(uri=self.init_config.get('libvirt_uri', None))
         updated_cache_this_time = False
         ping_results = []
         for inst in insp._get_connection().listAllDomains():

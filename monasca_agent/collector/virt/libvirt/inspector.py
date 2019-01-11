@@ -63,8 +63,8 @@ class LibvirtInspector(virt_inspector.Inspector):
 
     per_type_uris = dict(uml='uml:///system', xen='xen:///', lxc='lxc:///')
 
-    def __init__(self):
-        self.uri = self._get_uri()
+    def __init__(self, uri=None):
+        self.uri = uri if uri else self._get_uri()
         self.connection = None
 
     def _get_uri(self):
