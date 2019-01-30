@@ -172,6 +172,12 @@ class ElasticSearch(AgentCheck):
         # Host status needs to persist across all checks
         self.cluster_status = {}
 
+        # set hostname from init_config
+        try:
+            self.hostname = init_config['hostname']
+        except KeyError:
+            pass
+
     def check(self, instance):
         config_url = instance.get('url')
         if config_url is None:
@@ -232,7 +238,7 @@ class ElasticSearch(AgentCheck):
             # ES versions 0.90.10 and above
             # Metrics architecture changed starting with version 0.90.10
             self.HEALTH_URL = "/_cluster/health?pretty=true"
-            self.STATS_URL = "/_nodes/stats?all=true"
+            self.STATS_URL = "/_nodes/stats"
             self.NODES_URL = "/_nodes?network=true"
 
             additional_metrics = {
