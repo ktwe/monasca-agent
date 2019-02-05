@@ -14,18 +14,20 @@ import json
 import re
 import subprocess
 
+import six
+
 from monasca_agent.collector import checks
 
-_CACHE_FLUSH_RATE_REGEX = re.compile(r'(\d+) ([kKmMgG][bB])/s flush')
-_CACHE_EVICT_RATE_REGEX = re.compile(r'(\d+) ([kKmMgG][bB])/s evict')
+_CACHE_FLUSH_RATE_REGEX = re.compile(r'(\d+) ([kKmMgG]i?[bB])/s flush')
+_CACHE_EVICT_RATE_REGEX = re.compile(r'(\d+) ([kKmMgG]i?[bB])/s evict')
 _CACHE_PROMOTE_OPS_REGEX = re.compile(r'(\d+) op/s promote')
 
-_CLIENT_IO_READ_REGEX = re.compile(r'(\d+) ([kKmMgG][bB])/s rd')
-_CLIENT_IO_WRITE_REGEX = re.compile(r'(\d+) ([kKmMgG][bB])/s wr')
+_CLIENT_IO_READ_REGEX = re.compile(r'(\d+) ([kKmMgG]i?[bB])/s rd')
+_CLIENT_IO_WRITE_REGEX = re.compile(r'(\d+) ([kKmMgG]i?[bB])/s wr')
 _CLIENT_IO_READ_OPS_REGEX = re.compile(r'(\d+) op/s rd')
 _CLIENT_IO_WRITE_OPS_REGEX = re.compile(r'(\d+) op/s wr')
 
-_RECOVERY_IO_RATE_REGEX = re.compile(r'(\d+) ([kKmMgG][bB])/s')
+_RECOVERY_IO_RATE_REGEX = re.compile(r'(\d+) ([kKmMgG]i?[bB])/s')
 _RECOVERY_IO_KEY_REGEX = re.compile(r'(\d+) keys/s')
 _RECOVERY_IO_OBJECT_REGEX = re.compile(r'(\d+) objects/s')
 
@@ -79,7 +81,9 @@ class Ceph(checks.AgentCheck):
         if not self.instance.get('collect_mon_metrics', True):
             return
         ceph_status = self._ceph_cmd('status', 'json')
-        mon_metrics_dict = self._get_mon_metrics(ceph_status)
+        ceph_time_sync_status = self._ceph_cmd('time-sync-status', 'json')
+
+        mon_metrics_dict = self._get_mon_metrics(ceph_status, ceph_time_sync_status)
         for monitor, metrics in mon_metrics_dict.items():
             mon_dimensions = self.dimensions.copy()
             mon_dimensions['monitor'] = monitor
@@ -205,6 +209,12 @@ class Ceph(checks.AgentCheck):
                 rate = rate * 1e6
             elif unit == 'kb':
                 rate = rate * 1e3
+            elif unit == 'gib':
+                rate = rate * pow(1024, 3)
+            elif unit == 'mib':
+                rate = rate * pow(1024, 2)
+            elif unit == 'kib':
+                rate = rate * 1024
             metrics['ceph.cluster.client.read_bytes_per_sec'] = rate
 
         match_write = re.search(_CLIENT_IO_WRITE_REGEX, client_str)
@@ -217,6 +227,12 @@ class Ceph(checks.AgentCheck):
                 rate = rate * 1e6
             elif unit == 'kb':
                 rate = rate * 1e3
+            elif unit == 'gib':
+                rate = rate * pow(1024, 3)
+            elif unit == 'mib':
+                rate = rate * pow(1024, 2)
+            elif unit == 'kib':
+                rate = rate * 1024
             metrics['ceph.cluster.client.write_bytes_per_sec'] = rate
 
         match_read_ops = re.search(_CLIENT_IO_READ_OPS_REGEX, client_str)
@@ -246,6 +262,12 @@ class Ceph(checks.AgentCheck):
                 rate = rate * 1e6
             elif unit == 'kb':
                 rate = rate * 1e3
+            elif unit == 'gib':
+                rate = rate * pow(1024, 3)
+            elif unit == 'mib':
+                rate = rate * pow(1024, 2)
+            elif unit == 'kib':
+                rate = rate * 1024
             metrics['ceph.cluster.recovery.bytes_per_sec'] = rate
 
         match_key = re.search(_RECOVERY_IO_KEY_REGEX, recovery_str)
@@ -362,8 +384,8 @@ class Ceph(checks.AgentCheck):
         metrics['ceph.cluster.health_status'] = self._parse_ceph_status(
             ceph_status_health['overall_status'])
 
-        for s in ceph_status_health['summary']:
-            metrics.update(self._get_summary_metrics(s['summary']))
+        for s in six.itervalues(ceph_status_health['checks']):
+            metrics.update(self._get_summary_metrics(s['summary']['message']))
 
         osds = ceph_status['osdmap']['osdmap']
         metrics['ceph.cluster.osds.total_count'] = osds['num_osds']
@@ -400,45 +422,46 @@ class Ceph(checks.AgentCheck):
         ceph_status_plain = ceph_status_plain.split('\n')
         for l in ceph_status_plain:
             line = l.strip(' ')
-            if line.startswith('recovery io'):
+            if line.startswith('recovery'):
                 metrics.update(self._get_recovery_io(line))
-            elif line.startswith('client io'):
+            elif line.startswith('client:'):
                 metrics.update(self._get_client_io(line))
-            elif line.startswith('cache io'):
+            elif line.startswith('cache:'):
                 metrics.update(self._get_cache_io(line))
 
         metrics['ceph.cluster.quorum_size'] = len(ceph_status['quorum'])
         return metrics
 
-    def _get_mon_metrics(self, ceph_status):
+    def _get_mon_metrics(self, ceph_status, ceph_time_sync_status):
         """Parse the ceph_status dictionary and returns a dictionary
         with metrics regarding each monitor found, in the format
         {'monitor1': {metric1': value1, ...}, 'monitor2': {metric1': value1}}
         """
         mon_metrics = {}
-        for health_service in ceph_status['health']['health'][
-                'health_services']:
-            for mon in health_service['mons']:
-                store_stats = mon['store_stats']
-                mon_metrics[mon['name'].encode('ascii', 'ignore')] = {
-                    'ceph.monitor.total_bytes': mon['kb_total'] * 1e3,
-                    'ceph.monitor.used_bytes': mon['kb_used'] * 1e3,
-                    'ceph.monitor.avail_bytes': mon['kb_avail'] * 1e3,
-                    'ceph.monitor.avail_perc': mon['avail_percent'],
-                    'ceph.monitor.store.total_bytes': store_stats[
-                        'bytes_total'],
-                    'ceph.monitor.store.sst_bytes': store_stats['bytes_sst'],
-                    'ceph.monitor.store.log_bytes': store_stats['bytes_log'],
-                    'ceph.monitor.store.misc_bytes': store_stats['bytes_misc']
-                }
+        # health_services key has been removed in luminous
+        # for health_service in ceph_status['health']['health'][
+        #         'health_services']:
+        #     for mon in health_service['mons']:
+        #         store_stats = mon['store_stats']
+        #         mon_metrics[mon['name'].encode('ascii', 'ignore')] = {
+        #             'ceph.monitor.total_bytes': mon['kb_total'] * 1e3,
+        #             'ceph.monitor.used_bytes': mon['kb_used'] * 1e3,
+        #             'ceph.monitor.avail_bytes': mon['kb_avail'] * 1e3,
+        #             'ceph.monitor.avail_perc': mon['avail_percent'],
+        #             'ceph.monitor.store.total_bytes': store_stats[
+        #                 'bytes_total'],
+        #             'ceph.monitor.store.sst_bytes': store_stats['bytes_sst'],
+        #             'ceph.monitor.store.log_bytes': store_stats['bytes_log'],
+        #             'ceph.monitor.store.misc_bytes': store_stats['bytes_misc']
+        #         }
         # monitor timechecks are available only when there are at least 2
         # monitors configured on the cluster
-        if len(mon_metrics) > 1:
-            for mon in ceph_status['health']['timechecks']['mons']:
-                mon_metrics[mon['name'].encode('ascii', 'ignore')].update({
-                    'ceph.monitor.skew': mon['skew'],
-                    'ceph.monitor.latency': mon['latency']
-                })
+        if len(ceph_time_sync_status['time_skew_status']) > 1:
+            for mon_name, mon_data in six.iteritems(ceph_time_sync_status['time_skew_status']):
+                mon_metrics[mon_name.encode('ascii', 'ignore')] = {
+                    'ceph.monitor.skew': mon_data['skew'],
+                    'ceph.monitor.latency': mon_data['latency']
+                }
         return mon_metrics
 
     def _get_osd_metrics(self, ceph_osd_df, ceph_osd_perf, ceph_osd_dump):
@@ -455,7 +478,7 @@ class Ceph(checks.AgentCheck):
                 'ceph.osd.total_bytes': node['kb'] * 1e3,
                 'ceph.osd.used_bytes': node['kb_used'] * 1e3,
                 'ceph.osd.avail_bytes': node['kb_avail'] * 1e3,
-                'ceph.osd.utilization_perc': node['utilization'],
+                'ceph.osd.utilization_perc': node['utilization'] / 1e2,
                 'ceph.osd.variance': node['var'],
                 'ceph.osd.pgs_count': node['pgs']
             }
@@ -488,7 +511,7 @@ class Ceph(checks.AgentCheck):
         metrics['ceph.osds.total_avail_bytes'] = osd_summary[
             'total_kb_avail'] * 1e3
         metrics['ceph.osds.avg_utilization_perc'] = osd_summary[
-            'average_utilization']
+            'average_utilization'] / 1e2
         return metrics
 
     def _get_pool_metrics(self, ceph_df):
