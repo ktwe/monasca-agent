@@ -404,7 +404,7 @@ class Ceph(checks.AgentCheck):
                         'ceph.cluster.pgs.deep_scrubbing_count': 0})
         for state in ceph_status['pgmap']['pgs_by_state']:
             metrics['ceph.cluster.pgs.' +
-                    state['state_name'].encode('ascii', 'ignore')] = state[
+                    six.ensure_str(state['state_name'], 'ascii', 'ignore')] = state[
                         'count']
             if 'scrubbing' in state['state_name']:
                 if 'deep' in state['state_name']:
@@ -416,7 +416,7 @@ class Ceph(checks.AgentCheck):
         metrics['ceph.cluster.pgs.total_count'] = ceph_status['pgmap'][
             'num_pgs']
         metrics['ceph.cluster.pgs.avg_per_osd'] = metrics[
-            'ceph.cluster.pgs.total_count'] / metrics[
+            'ceph.cluster.pgs.total_count'] // metrics[
                 'ceph.cluster.osds.total_count']
 
         ceph_status_plain = ceph_status_plain.split('\n')
@@ -458,7 +458,7 @@ class Ceph(checks.AgentCheck):
         # monitors configured on the cluster
         if len(ceph_time_sync_status['time_skew_status']) > 1:
             for mon_name, mon_data in six.iteritems(ceph_time_sync_status['time_skew_status']):
-                mon_metrics[mon_name.encode('ascii', 'ignore')] = {
+                mon_metrics[six.ensure_str(mon_name, 'ascii', 'ignore')] = {
                     'ceph.monitor.skew': mon_data['skew'],
                     'ceph.monitor.latency': mon_data['latency']
                 }
@@ -471,7 +471,7 @@ class Ceph(checks.AgentCheck):
         """
         osd_metrics = {}
         for node in ceph_osd_df['nodes']:
-            osd_metrics[node['name'].encode('ascii', 'ignore')] = {
+            osd_metrics[six.ensure_str(node['name'], 'ascii', 'ignore')] = {
                 'ceph.osd.crush_weight': node['crush_weight'],
                 'ceph.osd.depth': node['depth'],
                 'ceph.osd.reweight': node['reweight'],
@@ -524,7 +524,7 @@ class Ceph(checks.AgentCheck):
             stats = pool['stats']
             total_bytes = stats['bytes_used'] + stats['max_avail']
             utilization_perc = float(stats['bytes_used']) / total_bytes
-            pool_metrics[pool['name'].encode('ascii', 'ignore')] = {
+            pool_metrics[six.ensure_str(pool['name'], 'ascii', 'ignore')] = {
                 'ceph.pool.used_bytes': stats['bytes_used'],
                 'ceph.pool.used_raw_bytes': stats['raw_bytes_used'],
                 'ceph.pool.max_avail_bytes': stats['max_avail'],
