@@ -138,7 +138,8 @@ class Ceph(checks.AgentCheck):
 
         try:
             output = subprocess.check_output(cmd, shell=True,
-                                             stderr=subprocess.STDOUT)
+                                             stderr=subprocess.STDOUT,
+                                             universal_newlines=True)
         except subprocess.CalledProcessError as e:
             self.log.error(
                 "Unable to execute ceph command '{}': {}".format(cmd,
