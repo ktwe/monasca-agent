@@ -20,7 +20,7 @@ from monasca_agent.common import util
 from monasca_agent.collector.checks_d import ceph
 
 
-def mocked_check_output(args, shell=True, stderr='', universal_newlines=True):
+def mocked_check_output(args, shell=True, stderr=''):
     output = ''
     if '-f json df detail' in args:
         output = file(os.path.dirname(os.path.abspath(__file__)) +
@@ -122,7 +122,7 @@ class CephCheckTest(unittest.TestCase):
             except Exception as e:
                 pass
             ceph_cmd_call.assert_called_with(expect_cmd, shell=True,
-                                             stderr=subprocess.STDOUT, universal_newlines=True)
+                                             stderr=subprocess.STDOUT)
 
     def test_parse_ceph_status(self):
         self.assertEqual(0, self.ceph_check._parse_ceph_status('HEALTH_OK'))
